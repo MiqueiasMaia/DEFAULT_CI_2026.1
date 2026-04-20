@@ -29,12 +29,16 @@ jobs:
         id: check_branch_type
         run: |
           HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
           if [[ "$HEAD_REF" =~ ^(feature|feat)/ ]]; then
             echo "branch_type=feature" >> $GITHUB_ENV
             echo "feature_name=$(echo $HEAD_REF | sed -E 's/(feature|feat)\///')" >> $GITHUB_ENV
           elif [[ "$HEAD_REF" =~ ^(bugfix|bug|fix)/ ]]; then
             echo "branch_type=bugfix" >> $GITHUB_ENV
             echo "bugfix_name=$(echo $HEAD_REF | sed -E 's/(bugfix|bug|fix)\///')" >> $GITHUB_ENV
+          elif [[ "$HEAD_REF" =~ ^release/ && "$BASE_REF" == "main" ]]; then
+            echo "branch_type=release" >> $GITHUB_ENV
+            echo "release_version=$(echo $HEAD_REF | sed -E 's/release\///')" >> $GITHUB_ENV
           else
             echo "branch_type=unknown" >> $GITHUB_ENV
           fi
@@ -45,33 +49,6 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js
-        if: env.approved == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.x'
-          cache: 'yarn'
-          
-      - name: Install global dependencies
-        if: env.approved == 'true'
-        run: npm install -g yarn @sap/cds-dk
-      
-      - name: Install dependencies
-        if: env.approved == 'true'
-        run: yarn install --frozen-lockfile
-      
-      - name: Run linter
-        if: env.approved == 'true'
-        run: yarn lint || echo "Linting skipped or failed, continuing workflow"
-      
-      - name: Build project
-        if: env.approved == 'true'
-        run: yarn build || echo "Build skipped or failed, continuing workflow"
-      
-      - name: Run tests
-        if: env.approved == 'true'
-        run: yarn test || echo "Tests skipped or failed, continuing workflow"
 
       - name: Configurar Git
         if: env.approved == 'true'
@@ -132,6 +109,39 @@ jobs:
             --delete-branch \
             --subject "fix: ${{ env.bugfix_name }}" \
             --body "Merge automático do bugfix ${{ env.bugfix_name }} para a branch main"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Processar release
+        if: env.approved == 'true' && env.branch_type == 'release'
+        run: |
+          VERSION="${{ env.release_version }}"
+          TAG="v${VERSION}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          echo "Processando release: ${VERSION}"
+
+          # Aborta se a tag já existir para evitar duplicidade
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A release ${TAG} já existe. Abortando."
+            exit 1
+          fi
+
+          # Merge síncrono (sem --auto) para garantir que o commit esteja na main antes da tag
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --merge \
+            --delete-branch \
+            --subject "release: ${VERSION}" \
+            --body "Merge automático da release ${VERSION} para a branch ${BASE_REF}"
+
+          # Obtém o SHA da main após o merge para apontar a tag
+          git fetch origin "$BASE_REF"
+          MERGE_SHA=$(git rev-parse "origin/${BASE_REF}")
+          echo "Criando tag ${TAG} no commit ${MERGE_SHA}"
+
+          gh release create "$TAG" \
+            --target "$MERGE_SHA" \
+            --title "Release ${TAG}" \
+            --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
