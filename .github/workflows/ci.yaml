@@ -50,33 +50,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        if: env.approved == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.x'
-          cache: 'yarn'
-          
-      - name: Install global dependencies
-        if: env.approved == 'true'
-        run: npm install -g yarn @sap/cds-dk
-      
-      - name: Install dependencies
-        if: env.approved == 'true'
-        run: yarn install --frozen-lockfile
-      
-      - name: Run linter
-        if: env.approved == 'true'
-        run: yarn lint || echo "Linting skipped or failed, continuing workflow"
-      
-      - name: Build project
-        if: env.approved == 'true'
-        run: yarn build || echo "Build skipped or failed, continuing workflow"
-      
-      - name: Run tests
-        if: env.approved == 'true'
-        run: yarn test || echo "Tests skipped or failed, continuing workflow"
-
       - name: Configurar Git
         if: env.approved == 'true'
         run: |
